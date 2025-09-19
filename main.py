@@ -1,46 +1,84 @@
-# Upload do Excel (Colab)
-#planilha disponivel em: https://drive.google.com/drive/u/1/folders/1ezyz7ApC5PnXDbfgmxavJw0A9Yh1NuUH
-# Nome do arquivo da planilha "Prencher_Planilha_ML_Produtividade.xlsx" 
-from google.colab import files
-uploaded = files.upload()
-
-# Instalar openpyxl (se necessário)
-!pip install openpyxl --quiet
-
-# Importar bibliotecas
-import pandas as pd
+import tkinter as tk
+from tkinter import ttk, messagebox
+import joblib
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
-import seaborn as sns
-import io
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Ler o arquivo Excel
-nome_arquivo = next(iter(uploaded))
-df = pd.read_excel(io.BytesIO(uploaded[nome_arquivo]))
+class ClimaApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Previsão de Produtividade Agrícola")
+        self.geometry("700x700")
 
-# Verificar colunas
-print("Colunas encontradas:", df.columns.tolist())
+        self.inputs = {}
+        self.resultado_valor = 0
 
-# Filtrar apenas as linhas com médias (a cada 123ª linha)
-intervalo = 123
-linhas_medias = list(range(intervalo - 1, len(df), intervalo))
-df_medias = df.iloc[linhas_medias].reset_index(drop=True)
+        variaveis = ['chuva', 'tempmin', 'tempmed', 'tempmax', 'umidrel', 'insolacao', 'evaporacao']
 
-# Remover a coluna 'data' se presente
-if 'data' in df_medias.columns:
-    df_medias = df_medias.drop(columns=['data'])
+        frame = ttk.Frame(self)
+        frame.pack(padx=20, pady=20, fill='x')
 
-# Separar X (dados climáticos) e y (produtividade)
-X = df_medias.drop(columns=['Produtividade_kg_ha'])
-y = df_medias['Produtividade_kg_ha']
+        ttk.Label(frame, text="Informe a média das variáveis climáticas de Setembro a Dezembro",
+                  font=("Arial", 12)).grid(row=0, column=0, columnspan=2, pady=(0, 20))
 
-# Treinar o modelo Random Forest
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        for i, var in enumerate(variaveis):
+            ttk.Label(frame, text=var.capitalize() + " média:").grid(row=i+1, column=0, sticky='e', pady=5)
+            entry = ttk.Entry(frame, width=20)
+            entry.grid(row=i+1, column=1, padx=10)
+            self.inputs[var] = entry
 
-modelo_rf = RandomForestRegressor(n_estimators=100, random_state=42)
-modelo_rf.fit(X_train, y_train)
+        self.btn_calcular = ttk.Button(self, text="Calcular previsão", command=self.calcular)
+        self.btn_calcular.pack(pady=20)
 
-y_pred = modelo_rf.predict(X_test)
+        self.resultado = ttk.Label(self, text="", font=("Arial", 12))
+        self.resultado.pack(pady=10)
+
+        self.grafico_frame = ttk.Frame(self)
+        self.grafico_frame.pack(fill='both', expand=True)
+
+    def calcular(self):
+        dados = []
+        for var in ['chuva', 'tempmin', 'tempmed', 'tempmax', 'umidrel', 'insolacao', 'evaporacao']:
+            valor = self.inputs[var].get()
+            if not valor:
+                messagebox.showerror("Erro de validação", f"O campo '{var}' está vazio.")
+                return
+            try:
+                valor_float = float(valor)
+                if valor_float < 0:
+                    messagebox.showerror("Erro de validação", f"O valor de '{var}' não pode ser negativo.")
+                    return
+                dados.append(valor_float)
+            except ValueError:
+                messagebox.showerror("Erro de validação", f"O valor de '{var}' deve ser numérico.")
+                return
+
+        try:
+            modelo = joblib.load('modelo_produtividade.pkl')
+            previsao = modelo.predict([dados])[0]
+            self.resultado_valor = previsao
+            self.resultado.config(text=f"Produtividade estimada: {previsao:.2f} kg/ha", foreground="green")
+            self.plotar_grafico(previsao)
+        except Exception as e:
+            self.resultado.config(text=f"Erro ao calcular: {e}", foreground="red")
+
+    def plotar_grafico(self, previsao):
+        for widget in self.grafico_frame.winfo_children():
+            widget.destroy()
+
+        fig, ax = plt.subplots(figsize=(5, 3))
+        categorias = ['Produtividade Prevista']
+        valores = [previsao]
+
+        ax.bar(categorias, valores, color='green')
+        ax.set_ylabel('kg/ha')
+        ax.set_title('Resultado da Previsão')
+
+        canvas = FigureCanvasTkAgg(fig, master=self.grafico_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+
+if __name__ == '__main__':
+    app = ClimaApp()
+    app.mainloop()
